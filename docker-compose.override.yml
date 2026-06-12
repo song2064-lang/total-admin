@@ -1,0 +1,10 @@
+# 로컬 전용 (서버는 COMPOSE_FILE 지정으로 이 파일을 읽지 않음)
+# Windows 바인드 마운트 I/O 병목 회피: vendor를 도커 볼륨에 둔다.
+# composer 작업은 컨테이너 안에서: docker compose exec app composer ...
+services:
+  app:
+    volumes:
+      - app-vendor:/var/www/html/vendor
+
+volumes:
+  app-vendor:
