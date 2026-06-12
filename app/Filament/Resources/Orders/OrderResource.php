@@ -71,7 +71,7 @@ class OrderResource extends Resource
                     ->label('결제금액')
                     ->state(fn (Order $record) => $record->paymentAmount())
                     ->numeric()
-                    ->suffix('원'),
+                    ->suffix(fn (Order $record) => data_get($record->payment, 'currency') === 'JPY' ? '엔' : '원'),
                 TextColumn::make('ordered_at')
                     ->label('주문일시')
                     ->dateTime('Y-m-d H:i')
@@ -198,7 +198,7 @@ class OrderResource extends Resource
                         ->label('결제금액')
                         ->state(fn (Order $record) => $record->paymentAmount())
                         ->numeric()
-                        ->suffix('원')
+                        ->suffix(fn (Order $record) => data_get($record->payment, 'currency') === 'JPY' ? '엔' : '원')
                         ->placeholder('-'),
                     TextEntry::make('payment_paid_at')
                         ->label('결제일시')

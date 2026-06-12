@@ -22,7 +22,7 @@ docker compose exec app php artisan make:filament-user
 
 채널별 시크릿으로 HMAC 서명한다. 요청 헤더 3개:
 
-- `X-Channel`: 채널 코드 (youngcart, woocommerce)
+- `X-Channel`: 채널 코드 (youngcart, sajapan)
 - `X-Timestamp`: 유닉스 타임스탬프(초), 서버와 ±5분 이내
 - `X-Signature`: `hash_hmac('sha256', "{채널}\n{타임스탬프}\n{본문}", 시크릿)`
 
@@ -44,10 +44,10 @@ $sig = hash_hmac('sha256', "{$channel}\n{$timestamp}\n{$jsonBody}", $secret);
 {"od_id":"2606110001","buyer_name":"홍길동","buyer_phone":"010-1234-5678","zipcode":"06236","address1":"서울 강남구 테헤란로 1","address2":"101동 101호","items":[{"name":"상품명","option":"옵션","qty":1,"price":25000}],"payment":{"method":"bank","amount":25000,"paid_at":"2026-06-11 12:00:00"},"pccc":"P123412341234","ordered_at":"2026-06-11 12:00:00"}
 ```
 
-우커머스 payload:
+일본 구매대행(sajapan) payload:
 
 ```json
-{"id":1234,"billing":{"last_name":"홍","first_name":"길동","phone":"010-1234-5678"},"shipping":{"postcode":"06236","address_1":"서울 강남구 테헤란로 1","address_2":"101동 101호"},"line_items":[{"name":"상품명","option":"옵션","quantity":1,"price":25000}],"payment_method":"bacs","total":"25000","date_paid":"2026-06-11 12:05:00","pccc":"P123412341234","date_created":"2026-06-11 12:00:00"}
+{"order_id":312,"name":"홍길동","phone":"01012345678","pccc":"P123412341234","zipcode":"06236","address":"서울 강남구 테헤란로 1 101동 101호","product":{"name":"상품명","url":"https://...","source":"amiami","price_jpy":5000,"qty":2},"inspection":"일반검수","fees_jpy":{"agency":400,"remit":200,"inspection":300},"subtotal_jpy":10000,"total_jpy":10900,"points_used":1000,"memo":"","ordered_at":"2026-06-12 14:00:00"}
 ```
 
 ## GET /api/orders/{주문번호}?phone={연락처} — 주문 조회
