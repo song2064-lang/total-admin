@@ -89,6 +89,17 @@ class SajapanChannelTest extends TestCase
             ->assertJsonPath('order_id', $first->json('order_id'));
     }
 
+    public function test_잘못된_주문일시_형식은_거부된다(): void
+    {
+        $payload = $this->payload();
+        $payload['ordered_at'] = '형식이 아닌 값';
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
+
+        $this->signedPost($body)
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'INVALID_PAYLOAD');
+    }
+
     public function test_상품_누락_payload_는_거부된다(): void
     {
         $payload = $this->payload();

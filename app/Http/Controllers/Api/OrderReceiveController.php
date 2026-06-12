@@ -21,6 +21,7 @@ class OrderReceiveController extends Controller
 
         try {
             $data = $channels->adapter($channel)->normalize($payload);
+            $attributes = $data->toModelAttributes(); // 날짜 파싱 오류도 422로
         } catch (InvalidArgumentException $e) {
             return response()->json([
                 'ok' => false,
@@ -39,7 +40,7 @@ class OrderReceiveController extends Controller
         }
 
         try {
-            $order = Order::create($data->toModelAttributes());
+            $order = Order::create($attributes);
         } catch (UniqueConstraintViolationException) {
             // 동시 재전송 경합
             $order = Order::query()

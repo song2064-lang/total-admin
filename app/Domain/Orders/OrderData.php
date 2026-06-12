@@ -3,7 +3,9 @@
 namespace App\Domain\Orders;
 
 use App\Enums\OrderStatus;
+use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Support\Carbon;
+use InvalidArgumentException;
 
 // 표준 주문 DTO. 어댑터가 채널 payload를 이 형태로 변환한다
 final readonly class OrderData
@@ -38,10 +40,21 @@ final readonly class OrderData
             'pccc' => $this->pccc,
             'status' => OrderStatus::Received,
             'raw' => $this->raw,
-            // 오프셋 포함 형식(ISO8601)도 정확히 저장되도록 앱 타임존으로 변환
-            'ordered_at' => $this->orderedAt !== null
-                ? Carbon::parse($this->orderedAt)->setTimezone(config('app.timezone'))
-                : null,
+            'ordered_at' => $this->parseOrderedAt(),
         ];
+    }
+
+    // 오프셋 포함 형식(ISO8601)도 정확히 저장되도록 앱 타임존으로 변환
+    private function parseOrderedAt(): ?Carbon
+    {
+        if ($this->orderedAt === null) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($this->orderedAt)->setTimezone(config('app.timezone'));
+        } catch (InvalidFormatException) {
+            throw new InvalidArgumentException('ordered_at 형식이 올바르지 않습니다.');
+        }
     }
 }
