@@ -54,4 +54,10 @@ class Order extends Model
 
         return $amount === null ? null : (int) $amount;
     }
+
+    // 결제 통화 표시 단위
+    public function currencyUnit(): string
+    {
+        return data_get($this->payment, 'currency') === 'JPY' ? '엔' : '원';
+    }
 }

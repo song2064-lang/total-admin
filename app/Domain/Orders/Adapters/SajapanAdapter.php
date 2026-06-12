@@ -27,17 +27,14 @@ class SajapanAdapter implements ChannelAdapter
             throw new InvalidArgumentException('필수 항목 누락: product.name');
         }
 
-        // 단일 상품 주문. 출처/상품 URL은 옵션 칸에 표시
-        $option = trim(implode(' ', array_filter([
-            $product['source'] ?? null,
-            $product['url'] ?? null,
-        ])));
-
+        // 단일 상품 주문. 구매처/상품 URL은 별도 필드로 보존
         $items = [[
             'name' => (string) $product['name'],
-            'option' => $option !== '' ? $option : null,
+            'option' => null,
             'qty' => max(1, (int) ($product['qty'] ?? 1)),
             'price' => (int) ($product['price_jpy'] ?? 0),
+            'source' => $product['source'] ?? null,
+            'url' => $product['url'] ?? null,
         ]];
 
         return new OrderData(
@@ -56,6 +53,8 @@ class SajapanAdapter implements ChannelAdapter
                 'subtotal_jpy' => (int) ($payload['subtotal_jpy'] ?? 0),
                 'fees_jpy' => (array) ($payload['fees_jpy'] ?? []),
                 'inspection' => $payload['inspection'] ?? null,
+                'fx_rate' => isset($payload['fx_rate']) ? (float) $payload['fx_rate'] : null,
+                'total_krw' => isset($payload['total_krw']) ? (int) $payload['total_krw'] : null,
                 'points_used' => (int) ($payload['points_used'] ?? 0),
             ],
             pccc: $payload['pccc'] ?? null,

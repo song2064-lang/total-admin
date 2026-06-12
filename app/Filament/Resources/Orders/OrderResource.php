@@ -42,6 +42,39 @@ class OrderResource extends Resource
         return false;
     }
 
+    // 구매처 코드 → 표시명
+    public static function sourceLabel(?string $source): ?string
+    {
+        if ($source === null || $source === '') {
+            return null;
+        }
+
+        return match ($source) {
+            'mercari' => '메루카리',
+            'amiami' => '아미아미',
+            'yahoo_auctions' => '야후옥션',
+            'rakuten' => '라쿠텐',
+            default => $source,
+        };
+    }
+
+    // 엔화 금액 + 주문 당시 환율 기준 원화 환산 병기
+    public static function jpyWithKrw(Order $record, ?int $jpy): ?string
+    {
+        if ($jpy === null) {
+            return null;
+        }
+
+        $formatted = number_format($jpy).$record->currencyUnit();
+        $rate = data_get($record->payment, 'fx_rate');
+
+        if ($rate === null || $record->currencyUnit() !== '엔') {
+            return $formatted;
+        }
+
+        return $formatted.' (약 '.number_format((int) round($jpy * (float) $rate)).'원)';
+    }
+
     public static function table(Table $table): Table
     {
         return $table
@@ -57,6 +90,23 @@ class OrderResource extends Resource
                     ->label('채널 주문번호')
                     ->searchable()
                     ->copyable(),
+                TextColumn::make('items_summary')
+                    ->label('상품')
+                    ->state(function (Order $record) {
+                        $items = $record->items ?? [];
+                        $first = $items[0]['name'] ?? '-';
+                        $extra = count($items) - 1;
+
+                        return $extra > 0 ? "{$first} 외 {$extra}건" : $first;
+                    })
+                    ->limit(28)
+                    ->tooltip(fn (Order $record) => collect($record->items)->pluck('name')->implode(', ')),
+                TextColumn::make('source')
+                    ->label('구매처')
+                    ->state(fn (Order $record) => static::sourceLabel(data_get($record->items, '0.source')))
+                    ->badge()
+                    ->color('gray')
+                    ->placeholder('-'),
                 TextColumn::make('customer_name')
                     ->label('주문자')
                     ->searchable(),
@@ -71,7 +121,7 @@ class OrderResource extends Resource
                     ->label('결제금액')
                     ->state(fn (Order $record) => $record->paymentAmount())
                     ->numeric()
-                    ->suffix(fn (Order $record) => data_get($record->payment, 'currency') === 'JPY' ? '엔' : '원'),
+                    ->suffix(fn (Order $record) => $record->currencyUnit()),
                 TextColumn::make('ordered_at')
                     ->label('주문일시')
                     ->dateTime('Y-m-d H:i')
@@ -146,6 +196,10 @@ class OrderResource extends Resource
                     TextEntry::make('status')
                         ->label('상태')
                         ->badge(),
+                    TextEntry::make('member')
+                        ->label('회원')
+                        ->state(fn (Order $record) => data_get($record->raw, 'member'))
+                        ->placeholder('비회원'),
                     TextEntry::make('ordered_at')
                         ->label('주문일시')
                         ->dateTime('Y-m-d H:i:s'),
@@ -172,38 +226,115 @@ class OrderResource extends Resource
                     TextEntry::make('shipping_address2')
                         ->label('상세주소')
                         ->placeholder('-'),
+                    TextEntry::make('order_memo')
+                        ->label('요청 메모')
+                        ->state(fn (Order $record) => data_get($record->raw, 'memo'))
+                        ->visible(fn (Order $record) => filled(data_get($record->raw, 'memo')))
+                        ->columnSpanFull(),
                 ]),
 
             Section::make('품목')
                 ->schema([
                     RepeatableEntry::make('items')
                         ->hiddenLabel()
-                        ->columns(4)
+                        ->columns(6)
                         ->schema([
-                            TextEntry::make('name')->label('상품명'),
-                            TextEntry::make('option')->label('옵션')->placeholder('-'),
-                            TextEntry::make('qty')->label('수량'),
-                            TextEntry::make('price')->label('단가')->numeric()->suffix('원'),
+                            TextEntry::make('name')
+                                ->label('상품명')
+                                ->columnSpan(2),
+                            TextEntry::make('source')
+                                ->label('구매처')
+                                ->formatStateUsing(fn (?string $state) => static::sourceLabel($state))
+                                ->badge()
+                                ->color('gray')
+                                ->placeholder('-'),
+                            TextEntry::make('qty')->label('수량')->suffix('개'),
+                            TextEntry::make('price')
+                                ->label('단가')
+                                ->numeric()
+                                ->suffix(fn (Order $record) => $record->currencyUnit()),
+                            TextEntry::make('url')
+                                ->label('상품 페이지')
+                                ->formatStateUsing(fn () => '바로가기 ↗')
+                                ->url(fn (?string $state) => $state)
+                                ->openUrlInNewTab()
+                                ->color('info')
+                                ->placeholder('-'),
                         ]),
                 ]),
 
             Section::make('결제정보')
-                ->columns(3)
+                ->columns(2)
                 ->schema([
+                    TextEntry::make('payment_subtotal')
+                        ->label('상품금액')
+                        ->state(fn (Order $record) => static::jpyWithKrw($record, data_get($record->payment, 'subtotal_jpy')))
+                        ->visible(fn (Order $record) => data_get($record->payment, 'subtotal_jpy') !== null),
+                    TextEntry::make('fee_agency')
+                        ->label('대행수수료')
+                        ->state(fn (Order $record) => static::jpyWithKrw($record, data_get($record->payment, 'fees_jpy.agency')))
+                        ->visible(fn (Order $record) => data_get($record->payment, 'fees_jpy.agency') !== null),
+                    TextEntry::make('fee_remit')
+                        ->label('송금수수료')
+                        ->state(fn (Order $record) => static::jpyWithKrw($record, data_get($record->payment, 'fees_jpy.remit')))
+                        ->visible(fn (Order $record) => data_get($record->payment, 'fees_jpy.remit') !== null),
+                    TextEntry::make('fee_inspection')
+                        ->label('검수')
+                        ->state(function (Order $record) {
+                            $label = data_get($record->payment, 'inspection');
+                            $fee = data_get($record->payment, 'fees_jpy.inspection');
+
+                            if ($label === null) {
+                                return null;
+                            }
+
+                            return $fee !== null
+                                ? $label.' / '.static::jpyWithKrw($record, (int) $fee)
+                                : $label;
+                        })
+                        ->visible(fn (Order $record) => data_get($record->payment, 'inspection') !== null),
+                    TextEntry::make('payment_amount')
+                        ->label('합계')
+                        ->state(fn (Order $record) => static::jpyWithKrw($record, $record->paymentAmount()))
+                        ->weight('bold')
+                        ->placeholder('-'),
+                    TextEntry::make('fx_rate')
+                        ->label('적용 환율 (주문 당시)')
+                        ->state(function (Order $record) {
+                            $rate = data_get($record->payment, 'fx_rate');
+
+                            return $rate !== null ? '100엔 = '.number_format((float) $rate * 100, 0).'원' : null;
+                        })
+                        ->visible(fn (Order $record) => data_get($record->payment, 'fx_rate') !== null),
+                    TextEntry::make('points_used')
+                        ->label('적립금 사용')
+                        ->state(fn (Order $record) => '-'.number_format((int) data_get($record->payment, 'points_used', 0)).'원')
+                        ->color(fn (Order $record) => (int) data_get($record->payment, 'points_used', 0) > 0 ? 'danger' : 'gray')
+                        ->visible(fn (Order $record) => data_get($record->payment, 'points_used') !== null),
+                    TextEntry::make('final_krw')
+                        ->label('최종 결제 예정액')
+                        ->state(function (Order $record) {
+                            $totalKrw = data_get($record->payment, 'total_krw');
+
+                            if ($totalKrw === null) {
+                                return null;
+                            }
+
+                            $points = (int) data_get($record->payment, 'points_used', 0);
+
+                            return number_format(max(0, (int) $totalKrw - $points)).'원';
+                        })
+                        ->weight('bold')
+                        ->color('primary')
+                        ->visible(fn (Order $record) => data_get($record->payment, 'total_krw') !== null),
                     TextEntry::make('payment_method')
                         ->label('결제수단')
                         ->state(fn (Order $record) => data_get($record->payment, 'method'))
-                        ->placeholder('-'),
-                    TextEntry::make('payment_amount')
-                        ->label('결제금액')
-                        ->state(fn (Order $record) => $record->paymentAmount())
-                        ->numeric()
-                        ->suffix(fn (Order $record) => data_get($record->payment, 'currency') === 'JPY' ? '엔' : '원')
-                        ->placeholder('-'),
+                        ->placeholder('미결제'),
                     TextEntry::make('payment_paid_at')
                         ->label('결제일시')
                         ->state(fn (Order $record) => data_get($record->payment, 'paid_at'))
-                        ->placeholder('-'),
+                        ->placeholder('미결제'),
                 ]),
 
             Section::make('상태 이력')
