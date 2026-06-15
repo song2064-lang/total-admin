@@ -85,14 +85,35 @@ class ChannelSyncTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_발송_처리_시_송장과_함께_전송된다(): void
+    public function test_국제배송_처리_시_국제송장과_함께_전송된다(): void
     {
         Http::fake([self::CALLBACK => Http::response(['ok' => true])]);
         $order = $this->makeOrder();
         $order->updateQuietly(['status' => OrderStatus::Inspected]);
 
         $order->update([
-            'status' => OrderStatus::Shipped,
+            'status' => OrderStatus::InternationalShipping,
+            'tracking_intl_carrier' => 'EMS',
+            'tracking_intl_no' => 'EE123456789JP',
+        ]);
+
+        Http::assertSent(function (Request $request) {
+            $body = json_decode($request->body(), true);
+
+            return $body['status'] === 'sa-intl-shipping'
+                && $body['tracking_intl_carrier'] === 'EMS'
+                && $body['tracking_intl_no'] === 'EE123456789JP';
+        });
+    }
+
+    public function test_국내배송_처리_시_국내송장과_함께_전송된다(): void
+    {
+        Http::fake([self::CALLBACK => Http::response(['ok' => true])]);
+        $order = $this->makeOrder();
+        $order->updateQuietly(['status' => OrderStatus::InternationalShipping]);
+
+        $order->update([
+            'status' => OrderStatus::DomesticShipping,
             'tracking_carrier' => 'CJ대한통운',
             'tracking_no' => '123456789012',
         ]);
@@ -100,10 +121,75 @@ class ChannelSyncTest extends TestCase
         Http::assertSent(function (Request $request) {
             $body = json_decode($request->body(), true);
 
-            return $body['status'] === 'sa-shipping'
+            return $body['status'] === 'sa-domestic-shipping'
                 && $body['tracking_carrier'] === 'CJ대한통운'
                 && $body['tracking_no'] === '123456789012';
         });
+    }
+
+    public function test_국내배송시_국제_국내_송장이_함께_전송된다(): void
+    {
+        Http::fake([self::CALLBACK => Http::response(['ok' => true])]);
+        $order = $this->makeOrder();
+        $order->updateQuietly([
+            'status' => OrderStatus::InternationalShipping,
+            'tracking_intl_carrier' => 'EMS',
+            'tracking_intl_no' => 'EE111JP',
+        ]);
+
+        $order->update([
+            'status' => OrderStatus::DomesticShipping,
+            'tracking_carrier' => 'CJ대한통운',
+            'tracking_no' => '777788889999',
+        ]);
+
+        Http::assertSent(function (Request $request) {
+            $body = json_decode($request->body(), true);
+
+            return $body['status'] === 'sa-domestic-shipping'
+                && $body['tracking_intl_no'] === 'EE111JP'
+                && $body['tracking_no'] === '777788889999';
+        });
+    }
+
+    public function test_동기화_payload에_단조증가_시퀀스가_포함된다(): void
+    {
+        $seqs = [];
+        Http::fake(function (Request $request) use (&$seqs) {
+            $seqs[] = json_decode($request->body(), true)['seq'] ?? null;
+
+            return Http::response(['ok' => true]);
+        });
+
+        $order = $this->makeOrder();
+        $order->update(['status' => OrderStatus::PaymentConfirmed]);
+        $order->update(['status' => OrderStatus::Purchased]);
+
+        $sent = array_values(array_filter($seqs));
+        $this->assertCount(2, $sent);
+        $this->assertGreaterThan($sent[0], $sent[1], 'seq 는 변경 순서대로 단조 증가해야 한다');
+    }
+
+    public function test_긴_장애_대비_재시도_기한이_24시간이다(): void
+    {
+        $job = new \App\Jobs\SyncOrderToChannel(1);
+
+        $this->assertSame(0, $job->tries); // 횟수 제한 없음
+        $this->assertEqualsWithDelta(
+            now()->addDay()->getTimestamp(),
+            $job->retryUntil()->getTimestamp(),
+            5,
+        );
+    }
+
+    public function test_영구_실패시_에러_로그를_남긴다(): void
+    {
+        \Illuminate\Support\Facades\Log::shouldReceive('error')
+            ->once()
+            ->withArgs(fn ($msg, $ctx) => $msg === '채널 동기화 영구 실패' && ($ctx['order_id'] ?? null) === 999);
+
+        (new \App\Jobs\SyncOrderToChannel(999, ['status' => 'sa-paid']))
+            ->failed(new \RuntimeException('boom'));
     }
 
     public function test_콜백_미설정_채널은_동기화하지_않는다(): void

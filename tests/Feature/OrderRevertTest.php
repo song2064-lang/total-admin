@@ -60,7 +60,7 @@ class OrderRevertTest extends TestCase
     public function test_OrderStatus_prev(): void
     {
         $this->assertSame(OrderStatus::Received, OrderStatus::PaymentConfirmed->prev());
-        $this->assertSame(OrderStatus::Purchased, OrderStatus::Inspected->prev());
+        $this->assertSame(OrderStatus::Warehoused, OrderStatus::Inspected->prev());
         $this->assertNull(OrderStatus::Received->prev());
     }
 
@@ -80,9 +80,9 @@ class OrderRevertTest extends TestCase
         Livewire::test(ListOrders::class)->assertTableActionHidden('revert_status', $o);
     }
 
-    public function test_발송주문은_역행_버튼_없음(): void
+    public function test_배송완료주문은_역행_버튼_없음(): void
     {
-        $o = $this->order(OrderStatus::Shipped);
+        $o = $this->order(OrderStatus::Delivered);
 
         Livewire::test(ListOrders::class)->assertTableActionHidden('revert_status', $o);
     }
@@ -94,9 +94,9 @@ class OrderRevertTest extends TestCase
         Livewire::test(ListOrders::class)->callTableAction('revert_status', $o);
 
         $o->refresh();
-        $this->assertSame('purchased', $o->status->value);
+        $this->assertSame('warehoused', $o->status->value);
         $log = $o->statusLogs()->first();
         $this->assertSame('inspected', $log->from_status->value);
-        $this->assertSame('purchased', $log->to_status->value);
+        $this->assertSame('warehoused', $log->to_status->value);
     }
 }

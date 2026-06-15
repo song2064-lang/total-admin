@@ -55,8 +55,8 @@ class AdminOrderEditTest extends TestCase
         $this->assertSame('한정판', $order->items[0]['option']);
     }
 
-    // 수정 폼 상태 옵션에 발송이 없어, 송장 없이 발송 상태가 되지 않는다
-    public function test_검수_주문_수정_폼에_발송_옵션이_없다(): void
+    // 수정 폼 상태 옵션에 배송 단계가 없어, 송장 없이 배송 상태가 되지 않는다
+    public function test_검수_주문_수정_폼에_배송_옵션이_없다(): void
     {
         $this->actingAs(User::factory()->create());
         $order = $this->makeOrder();
@@ -66,9 +66,9 @@ class AdminOrderEditTest extends TestCase
             ->assertFormFieldExists('status')
             ->assertSet('data.status', OrderStatus::Inspected->value);
 
-        // 검수 상태에서 다음(발송)은 옵션에 없으므로, 발송으로 저장 시도해도 거부
+        // 검수 다음(국제배송)은 옵션에 없으므로, 국제배송으로 저장 시도해도 거부
         Livewire::test(EditOrder::class, ['record' => $order->getKey()])
-            ->fillForm(['status' => OrderStatus::Shipped->value])
+            ->fillForm(['status' => OrderStatus::InternationalShipping->value])
             ->call('save')
             ->assertHasFormErrors(['status']);
 

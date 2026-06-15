@@ -17,6 +17,13 @@ class ListOrders extends ListRecords
         return [];
     }
 
+    // 상태 변경 액션 후 탭 배지·목록 캐시를 비워 건수를 다시 계산
+    public function refreshAfterStatusChange(): void
+    {
+        unset($this->cachedTabs);
+        $this->flushCachedTableRecords();
+    }
+
     // 상태별 탭 (건수 배지 포함)
     public function getTabs(): array
     {

@@ -22,23 +22,27 @@ class ChannelNotifier
         }
 
         $statusValue = $snapshot['status'] ?? $order->status->value;
-        $carrier = $snapshot['tracking_carrier'] ?? $order->tracking_carrier;
-        $trackingNo = $snapshot['tracking_no'] ?? $order->tracking_no;
 
         // 채널측에 대응 단계가 없는 상태는 상태 필드 생략
         $channelStatus = data_get($config, "status_map.{$statusValue}");
 
+        // 국제·국내 구간 송장을 함께 전송 (현지 구간은 내부용이라 미전송)
         $payload = array_filter([
             'order_no' => $order->channel_order_no,
             'status' => $channelStatus,
-            'tracking_carrier' => $carrier,
-            'tracking_no' => $trackingNo,
-        ], fn ($value) => $value !== null);
+            'tracking_intl_carrier' => $snapshot['tracking_intl_carrier'] ?? $order->tracking_intl_carrier,
+            'tracking_intl_no' => $snapshot['tracking_intl_no'] ?? $order->tracking_intl_no,
+            'tracking_carrier' => $snapshot['tracking_carrier'] ?? $order->tracking_carrier,
+            'tracking_no' => $snapshot['tracking_no'] ?? $order->tracking_no,
+        ], fn ($value) => $value !== null && $value !== '');
 
         // 보낼 내용이 주문번호뿐이면 생략
         if (count($payload) <= 1) {
             return true;
         }
+
+        // 변경 시점 시퀀스 (순서 역전 방지)
+        $payload['seq'] = $snapshot['seq'] ?? (int) ($order->updated_at?->format('Uu') ?? 0);
 
         $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $timestamp = now()->getTimestamp();

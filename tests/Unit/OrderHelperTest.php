@@ -51,4 +51,21 @@ class OrderHelperTest extends TestCase
     {
         $this->assertNull($this->order(['tracking_no' => null])->trackingUrl());
     }
+
+    public function test_EMS_국제송장_조회URL_과_정규화(): void
+    {
+        $order = $this->order(['tracking_intl_carrier' => 'EMS', 'tracking_intl_no' => 'EE 123-456#789 JP']);
+
+        $url = $order->intlTrackingUrl();
+        $this->assertStringContainsString('epost.go.kr', $url);
+        // 영숫자만 남아 URL 파라미터 오염 방지
+        $this->assertStringContainsString('POSTCODE=EE123456789JP', $url);
+        $this->assertStringNotContainsString('#', $url);
+        $this->assertStringNotContainsString(' ', $url);
+    }
+
+    public function test_국제송장_없으면_조회URL_없음(): void
+    {
+        $this->assertNull($this->order(['tracking_intl_no' => null])->intlTrackingUrl());
+    }
 }

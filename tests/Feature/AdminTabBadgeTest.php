@@ -49,4 +49,28 @@ class AdminTabBadgeTest extends TestCase
         $this->assertSame('0', (string) $tabs['received']->getBadge());
         $this->assertSame('2', (string) $tabs['payment_confirmed']->getBadge());
     }
+
+    // 한 요청 안에서 탭 건수가 먼저 캐시된 뒤 상태가 바뀌어도 화면에 쓰이는 캐시가 갱신되는지
+    public function test_캐시된_탭_건수가_변경_후_무효화된다(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $a = $this->makeOrder(OrderStatus::Received);
+        $b = $this->makeOrder(OrderStatus::Received);
+
+        $page = Livewire::test(ListOrders::class)->instance();
+
+        // 일괄 액션이 레코드를 resolve하며 탭 건수가 먼저 캐시되는 상황
+        $primed = $page->getCachedTabs();
+        $this->assertSame('2', (string) $primed['received']->getBadge());
+        $this->assertSame('0', (string) $primed['payment_confirmed']->getBadge());
+
+        $a->update(['status' => OrderStatus::PaymentConfirmed]);
+        $b->update(['status' => OrderStatus::PaymentConfirmed]);
+
+        $page->refreshAfterStatusChange();
+
+        $fresh = $page->getCachedTabs();
+        $this->assertSame('0', (string) $fresh['received']->getBadge());
+        $this->assertSame('2', (string) $fresh['payment_confirmed']->getBadge());
+    }
 }

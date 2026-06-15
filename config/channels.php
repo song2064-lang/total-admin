@@ -23,8 +23,11 @@ return [
             'received' => 'private',
             'payment_confirmed' => 'sa-paid',
             'purchased' => 'sa-purchased',
+            'warehoused' => null,
             'inspected' => null,
-            'shipped' => 'sa-shipping',
+            'international_shipping' => 'sa-intl-shipping',
+            'domestic_shipping' => 'sa-domestic-shipping',
+            'delivered' => 'sa-delivered',
         ],
     ],
 

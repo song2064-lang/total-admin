@@ -35,12 +35,12 @@ class AdminRenderHtmlTest extends TestCase
         $this->actingAs(User::factory()->create());
         $this->makeOrder(OrderStatus::Received, ['customer_name' => '렌더확인', 'channel_order_no' => '999001']);
         $this->makeOrder(OrderStatus::Received);
-        $this->makeOrder(OrderStatus::Shipped, ['tracking_no' => '420123456789', 'tracking_carrier' => '한진택배']);
+        $this->makeOrder(OrderStatus::DomesticShipping, ['tracking_no' => '420123456789', 'tracking_carrier' => '한진택배']);
 
         $html = Livewire::test(ListOrders::class)->html();
 
         // 탭 라벨
-        foreach (['전체', '접수', '결제확인', '매입', '검수', '발송'] as $label) {
+        foreach (['전체', '접수', '결제확인', '매입', '입고', '검수', '국제배송', '국내배송', '배송완료'] as $label) {
             $this->assertStringContainsString($label, $html, "탭 '{$label}' 누락");
         }
 

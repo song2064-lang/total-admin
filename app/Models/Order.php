@@ -23,6 +23,10 @@ class Order extends Model
         'payment',
         'pccc',
         'status',
+        'tracking_local_carrier',
+        'tracking_local_no',
+        'tracking_intl_carrier',
+        'tracking_intl_no',
         'tracking_carrier',
         'tracking_no',
         'raw',
@@ -76,7 +80,7 @@ class Order extends Model
         return implode(' ', $parts);
     }
 
-    // 택배사 배송조회 URL. 미지원 택배사는 네이버 통합검색으로 fallback
+    // 국내(한국) 택배 배송조회 URL. 미지원 택배사는 네이버 통합검색으로 대체
     public function trackingUrl(): ?string
     {
         if (blank($this->tracking_no)) {
@@ -86,7 +90,7 @@ class Order extends Model
         $no = preg_replace('/\D/', '', $this->tracking_no);
         $carrier = (string) $this->tracking_carrier;
 
-        $url = match (true) {
+        return match (true) {
             str_contains($carrier, 'CJ'), str_contains($carrier, '대한통운') =>
                 "https://trace.cjlogistics.com/next/tracking.html?wblNo={$no}",
             str_contains($carrier, '우체국') =>
@@ -99,7 +103,22 @@ class Order extends Model
                 "https://www.ilogen.com/m/personal/trace/{$no}",
             default => 'https://search.naver.com/search.naver?query='.urlencode(trim($carrier.' '.$no)),
         };
+    }
 
-        return $url;
+    // 국제 구간 배송조회 URL. EMS 는 우체국 국제우편, 그 외는 네이버 검색
+    public function intlTrackingUrl(): ?string
+    {
+        if (blank($this->tracking_intl_no)) {
+            return null;
+        }
+
+        $no = preg_replace('/[^A-Za-z0-9]/', '', (string) $this->tracking_intl_no);
+        $carrier = (string) $this->tracking_intl_carrier;
+
+        if ($no !== '' && str_contains($carrier, 'EMS')) {
+            return "https://service.epost.go.kr/trace.RetrieveEmsRigiTraceList.comm?POSTCODE={$no}";
+        }
+
+        return 'https://search.naver.com/search.naver?query='.urlencode(trim($carrier.' '.$no));
     }
 }

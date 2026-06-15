@@ -46,6 +46,12 @@ class OrderResource extends Resource
 
     public const CARRIERS = ['CJ대한통운', '우체국택배', '한진택배', '롯데택배', '로젠택배'];
 
+    // 현지(일본) 구간 택배사
+    public const LOCAL_CARRIERS = ['야마토운수', '사가와택배', '일본우편', '세이노운수'];
+
+    // 국제 구간 운송
+    public const INTL_CARRIERS = ['EMS', '항공특송', '해상운송', 'DHL', 'FedEx'];
+
     public const SOURCES = [
         'mercari' => '메루카리',
         'amiami' => '아미아미',
@@ -192,9 +198,11 @@ class OrderResource extends Resource
             ->recordActions([
                 // 자주 쓰는 진행 동작은 노출, 나머지는 더보기 메뉴로
                 static::advanceStatusAction(),
-                static::shipAction(),
+                static::shipInternationalAction(),
+                static::shipDomesticAction(),
                 ActionGroup::make([
                     ViewAction::make(),
+                    static::localTrackingAction(),
                     static::revertStatusAction(),
                     static::noteAction(),
                     EditAction::make(),
@@ -208,7 +216,19 @@ class OrderResource extends Resource
             ->defaultSort('created_at', 'desc');
     }
 
-    // 선택한 주문들을 다음 단계로 일괄 전진 (발송 전 단계까지만)
+    // 목록에선 캐시만 비워 갱신, 상세에선 상태 이력까지 반영되도록 새로고침
+    protected static function refreshAfterChange($livewire): void
+    {
+        if ($livewire instanceof ListOrders) {
+            $livewire->refreshAfterStatusChange();
+
+            return;
+        }
+
+        $livewire->js('window.location.reload()');
+    }
+
+    // 선택한 주문들을 다음 단계로 일괄 전진 (송장 입력이 필요한 배송 단계는 제외)
     public static function bulkAdvanceAction(): BulkAction
     {
         return BulkAction::make('bulk_advance')
@@ -224,7 +244,7 @@ class OrderResource extends Resource
 
                 foreach ($records as $record) {
                     $next = $record->status->next();
-                    if ($next === null || $next === OrderStatus::Shipped) {
+                    if ($next === null || $next->requiresTracking()) {
                         $skipped++;
 
                         continue;
@@ -238,12 +258,12 @@ class OrderResource extends Resource
                     ->success()
                     ->send();
 
-                $livewire->dispatch('$refresh');
+                static::refreshAfterChange($livewire);
             })
             ->deselectRecordsAfterCompletion();
     }
 
-    // 상태 한 단계 전진. 발송은 송장 입력이 필요해 shipAction 으로 분리
+    // 상태 한 단계 전진. 배송 단계는 송장 입력이 필요해 별도 액션으로 분리
     public static function advanceStatusAction(): Action
     {
         return Action::make('advance_status')
@@ -251,10 +271,10 @@ class OrderResource extends Resource
             ->icon('heroicon-o-arrow-right-circle')
             ->color('primary')
             ->visible(fn (Order $record) => $record->status->next() !== null
-                && $record->status->next() !== OrderStatus::Shipped)
+                && ! $record->status->next()->requiresTracking())
             ->requiresConfirmation()
             ->modalHeading(fn (Order $record) => sprintf(
-                '상태 변경: %s → %s',
+                '%s 에서 %s 로 변경',
                 $record->status->getLabel(),
                 $record->status->next()?->getLabel(),
             ))
@@ -274,21 +294,21 @@ class OrderResource extends Resource
                     ->success()
                     ->send();
 
-                $livewire->dispatch('$refresh');
+                static::refreshAfterChange($livewire);
             });
     }
 
-    // 상태 한 단계 되돌리기. 발송 완료는 송장 발송 후라 역행 불가
+    // 상태 한 단계 되돌리기. 배송완료는 종결 단계라 역행 불가
     public static function revertStatusAction(): Action
     {
         return Action::make('revert_status')
             ->label('이전 단계로')
             ->color('gray')
-            ->visible(fn (Order $record) => $record->status !== OrderStatus::Shipped
+            ->visible(fn (Order $record) => $record->status !== OrderStatus::Delivered
                 && $record->status->prev() !== null)
             ->requiresConfirmation()
             ->modalHeading(fn (Order $record) => sprintf(
-                '이전 단계로: %s → %s',
+                '%s 에서 %s 로 되돌리기',
                 $record->status->getLabel(),
                 $record->status->prev()?->getLabel(),
             ))
@@ -298,7 +318,7 @@ class OrderResource extends Resource
             ->action(function (Order $record, $livewire): void {
                 $prev = $record->status->prev();
 
-                if ($prev === null || $record->status === OrderStatus::Shipped) {
+                if ($prev === null || $record->status === OrderStatus::Delivered) {
                     return;
                 }
 
@@ -309,18 +329,57 @@ class OrderResource extends Resource
                     ->success()
                     ->send();
 
-                $livewire->dispatch('$refresh');
+                static::refreshAfterChange($livewire);
             });
     }
 
-    // 송장 입력 후 발송 전환
-    public static function shipAction(): Action
+    // 국제배송 전환. 국제 구간 송장 입력 강제
+    public static function shipInternationalAction(): Action
     {
-        return Action::make('ship')
-            ->label('발송 처리')
+        return Action::make('ship_international')
+            ->label('국제배송 처리')
+            ->icon('heroicon-o-paper-airplane')
+            ->color('info')
+            ->visible(fn (Order $record) => $record->status->next() === OrderStatus::InternationalShipping)
+            ->schema([
+                Select::make('tracking_intl_carrier')
+                    ->label('운송수단')
+                    ->options(array_combine(self::INTL_CARRIERS, self::INTL_CARRIERS))
+                    ->required()
+                    ->native(false),
+                TextInput::make('tracking_intl_no')
+                    ->label('송장번호')
+                    ->required()
+                    ->maxLength(64),
+            ])
+            ->modalHeading('국제배송 처리')
+            ->modalSubmitActionLabel('국제배송 전환')
+            ->modalCancelActionLabel('취소')
+            ->action(function (Order $record, array $data, $livewire): void {
+                $record->update([
+                    'status' => OrderStatus::InternationalShipping,
+                    'tracking_intl_carrier' => $data['tracking_intl_carrier'],
+                    'tracking_intl_no' => $data['tracking_intl_no'],
+                ]);
+
+                Notification::make()
+                    ->title('국제배송으로 전환되었습니다.')
+                    ->body("{$data['tracking_intl_carrier']} {$data['tracking_intl_no']}")
+                    ->success()
+                    ->send();
+
+                static::refreshAfterChange($livewire);
+            });
+    }
+
+    // 국내배송 전환. 국내 구간 송장 입력 강제
+    public static function shipDomesticAction(): Action
+    {
+        return Action::make('ship_domestic')
+            ->label('국내배송 처리')
             ->icon('heroicon-o-truck')
             ->color('success')
-            ->visible(fn (Order $record) => $record->status->next() === OrderStatus::Shipped)
+            ->visible(fn (Order $record) => $record->status->next() === OrderStatus::DomesticShipping)
             ->schema([
                 Select::make('tracking_carrier')
                     ->label('택배사')
@@ -332,23 +391,63 @@ class OrderResource extends Resource
                     ->required()
                     ->maxLength(64),
             ])
-            ->modalHeading('발송 처리')
-            ->modalSubmitActionLabel('발송 완료')
+            ->modalHeading('국내배송 처리')
+            ->modalSubmitActionLabel('국내배송 전환')
             ->modalCancelActionLabel('취소')
             ->action(function (Order $record, array $data, $livewire): void {
                 $record->update([
-                    'status' => OrderStatus::Shipped,
+                    'status' => OrderStatus::DomesticShipping,
                     'tracking_carrier' => $data['tracking_carrier'],
                     'tracking_no' => $data['tracking_no'],
                 ]);
 
                 Notification::make()
-                    ->title('발송 처리되었습니다.')
+                    ->title('국내배송으로 전환되었습니다.')
                     ->body("{$data['tracking_carrier']} {$data['tracking_no']}")
                     ->success()
                     ->send();
 
-                $livewire->dispatch('$refresh');
+                static::refreshAfterChange($livewire);
+            });
+    }
+
+    // 현지 송장 (입고 이후 선택 입력)
+    public static function localTrackingAction(): Action
+    {
+        return Action::make('local_tracking')
+            ->label('현지 송장')
+            ->icon('heroicon-o-truck')
+            ->color('gray')
+            ->visible(fn (Order $record) => in_array($record->status, [
+                OrderStatus::Warehoused,
+                OrderStatus::Inspected,
+                OrderStatus::InternationalShipping,
+                OrderStatus::DomesticShipping,
+                OrderStatus::Delivered,
+            ], true))
+            ->fillForm(fn (Order $record) => [
+                'tracking_local_carrier' => $record->tracking_local_carrier,
+                'tracking_local_no' => $record->tracking_local_no,
+            ])
+            ->schema([
+                Select::make('tracking_local_carrier')
+                    ->label('현지 택배사')
+                    ->options(array_combine(self::LOCAL_CARRIERS, self::LOCAL_CARRIERS))
+                    ->native(false),
+                TextInput::make('tracking_local_no')
+                    ->label('송장번호')
+                    ->maxLength(64),
+            ])
+            ->modalHeading('현지 송장')
+            ->modalSubmitActionLabel('저장')
+            ->modalCancelActionLabel('취소')
+            ->action(function (Order $record, array $data): void {
+                $record->update([
+                    'tracking_local_carrier' => $data['tracking_local_carrier'],
+                    'tracking_local_no' => $data['tracking_local_no'],
+                ]);
+
+                Notification::make()->title('현지 송장이 저장되었습니다.')->success()->send();
             });
     }
 
@@ -565,7 +664,29 @@ class OrderResource extends Resource
                         ->placeholder('미결제'),
                 ]),
 
-            Section::make('배송 정보')
+            Section::make('현지 배송 (일본)')
+                ->columns(3)
+                ->schema([
+                    TextEntry::make('tracking_local_carrier')->label('택배사'),
+                    TextEntry::make('tracking_local_no')->label('송장번호')->copyable(),
+                ])
+                ->visible(fn (Order $record) => filled($record->tracking_local_no)),
+
+            Section::make('국제 배송')
+                ->columns(3)
+                ->schema([
+                    TextEntry::make('tracking_intl_carrier')->label('운송수단'),
+                    TextEntry::make('tracking_intl_no')->label('송장번호')->copyable(),
+                    TextEntry::make('intl_tracking_lookup')
+                        ->label('배송조회')
+                        ->state(fn () => '조회')
+                        ->url(fn (Order $record) => $record->intlTrackingUrl())
+                        ->openUrlInNewTab()
+                        ->color('info'),
+                ])
+                ->visible(fn (Order $record) => filled($record->tracking_intl_no)),
+
+            Section::make('국내 배송')
                 ->columns(3)
                 ->schema([
                     TextEntry::make('tracking_carrier')->label('택배사'),
@@ -622,17 +743,17 @@ class OrderResource extends Resource
                 ->schema([
                     Select::make('status')
                         ->label('주문 상태')
-                        ->helperText('발송은 발송 처리에서')
+                        ->helperText('국제·국내배송은 발송 처리에서 송장과 함께')
                         ->options(function (?Order $record) {
                             if ($record === null) {
                                 return OrderStatus::options();
                             }
 
-                            // 현재 상태 유지 또는 다음 단계만 (발송 제외)
+                            // 현재 상태 유지 또는 다음 단계만 (배송 단계 제외)
                             $options = [$record->status->value => $record->status->getLabel()];
 
                             $next = $record->status->next();
-                            if ($next !== null && $next !== OrderStatus::Shipped) {
+                            if ($next !== null && ! $next->requiresTracking()) {
                                 $options[$next->value] = $next->getLabel();
                             }
 
