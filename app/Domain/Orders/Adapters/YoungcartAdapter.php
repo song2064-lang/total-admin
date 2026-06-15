@@ -21,16 +21,22 @@ class YoungcartAdapter implements ChannelAdapter
             }
         }
 
-        if (! is_array($payload['items'])) {
-            throw new InvalidArgumentException('items 는 배열이어야 합니다.');
+        if (! is_array($payload['items']) || $payload['items'] === []) {
+            throw new InvalidArgumentException('items 는 비어있지 않은 배열이어야 합니다.');
         }
 
-        $items = array_map(fn (array $item) => [
-            'name' => (string) ($item['name'] ?? ''),
-            'option' => $item['option'] ?? null,
-            'qty' => (int) ($item['qty'] ?? 1),
-            'price' => (int) ($item['price'] ?? 0),
-        ], $payload['items']);
+        $items = [];
+        foreach ($payload['items'] as $item) {
+            if (! is_array($item)) {
+                throw new InvalidArgumentException('items 의 각 항목은 객체여야 합니다.');
+            }
+            $items[] = [
+                'name' => (string) ($item['name'] ?? ''),
+                'option' => $item['option'] ?? null,
+                'qty' => (int) ($item['qty'] ?? 1),
+                'price' => (int) ($item['price'] ?? 0),
+            ];
+        }
 
         return new OrderData(
             channel: $this->channel(),

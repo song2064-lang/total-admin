@@ -16,6 +16,16 @@ return [
         'label' => '일본 구매대행',
         'secret' => env('CHANNEL_SAJAPAN_SECRET'),
         'adapter' => SajapanAdapter::class,
+        // 상태·송장 역동기화 수신 주소 (비우면 비활성)
+        'callback_url' => env('CHANNEL_SAJAPAN_CALLBACK_URL'),
+        // 이쪽 상태 → 채널측 상태. null 은 채널에 대응 단계 없음(미전송)
+        'status_map' => [
+            'received' => 'private',
+            'payment_confirmed' => 'sa-paid',
+            'purchased' => 'sa-purchased',
+            'inspected' => null,
+            'shipped' => 'sa-shipping',
+        ],
     ],
 
 ];

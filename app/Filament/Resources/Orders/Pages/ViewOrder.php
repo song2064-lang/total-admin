@@ -14,6 +14,9 @@ class ViewOrder extends ViewRecord
     {
         return [
             OrderResource::advanceStatusAction(),
+            OrderResource::shipAction(),
+            OrderResource::revertStatusAction(),
+            OrderResource::noteAction(),
             EditAction::make(),
         ];
     }

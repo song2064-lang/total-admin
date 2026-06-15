@@ -44,15 +44,18 @@ final readonly class OrderData
         ];
     }
 
-    // 오프셋 포함 형식(ISO8601)도 정확히 저장되도록 앱 타임존으로 변환
+    // 오프셋 포함 형식(ISO8601)도 정확히 저장되도록 앱 타임존으로 변환.
+    // 빈 문자열/공백은 Carbon::parse 가 now() 를 반환하므로 null 로 처리
     private function parseOrderedAt(): ?Carbon
     {
-        if ($this->orderedAt === null) {
+        $value = is_string($this->orderedAt) ? trim($this->orderedAt) : $this->orderedAt;
+
+        if ($value === null || $value === '') {
             return null;
         }
 
         try {
-            return Carbon::parse($this->orderedAt)->setTimezone(config('app.timezone'));
+            return Carbon::parse($value)->setTimezone(config('app.timezone'));
         } catch (InvalidFormatException) {
             throw new InvalidArgumentException('ordered_at 형식이 올바르지 않습니다.');
         }

@@ -27,3 +27,6 @@ Thumbs.db
 /public/css/filament
 /public/fonts/filament
 /docs
+
+/tests/Feature
+/tests/Unit

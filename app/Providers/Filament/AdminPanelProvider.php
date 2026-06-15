@@ -30,6 +30,7 @@ class AdminPanelProvider extends PanelProvider
             ->login()
             ->brandName('통합 주문관리')
             ->maxContentWidth(Width::Full)
+            ->sidebarCollapsibleOnDesktop()
             ->colors([
                 'primary' => Color::Blue,
             ])

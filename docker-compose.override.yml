@@ -6,5 +6,18 @@ services:
     volumes:
       - app-vendor:/var/www/html/vendor
 
+  worker:
+    image: total-admin-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan queue:work --tries=5
+    volumes:
+      - ./:/var/www/html
+      - app-vendor:/var/www/html/vendor
+      - ./docker/php/zz-app.ini:/usr/local/etc/php/conf.d/zz-app.ini:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   app-vendor:
